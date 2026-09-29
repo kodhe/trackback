@@ -1,0 +1,15 @@
+{
+  "name": "kodhe/trackback",
+  "description": "Kodhe trackback library",
+  "type": "library",
+  "version": "1.1.0",
+  "license": "MIT",
+  "require": {
+    "php": ">=8.1"
+  },
+  "autoload": {
+    "psr-4": {
+      "Kodhe\\Framework\\Trackback\\": "src/"
+    }
+  }
+}
