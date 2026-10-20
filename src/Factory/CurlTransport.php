@@ -59,6 +59,10 @@ class CurlTransport implements TransportInterface
                 'User-Agent: ' . $this->userAgent,
             ],
             CURLOPT_FOLLOWLOCATION => false, // Prevent redirects for security
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+            CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
         ]);
 
         $response = curl_exec($ch);

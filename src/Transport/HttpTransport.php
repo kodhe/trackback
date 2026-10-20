@@ -45,8 +45,33 @@ class HttpTransport implements TransportInterface
             throw new TransportException('Invalid URL: ' . $url);
         }
 
+        // Only plain HTTP endpoints are supported by this socket transport.
+        if (!isset($target['scheme']) || strtolower($target['scheme']) !== 'http') {
+            throw new TransportException('Unsupported URL scheme: ' . $url);
+        }
+
         $host = $target['host'];
         $port = isset($target['port']) ? (int) $target['port'] : 80;
+
+        // SSRF guard: resolve the hostname once and refuse private/loopback/
+        // link-local/reserved addresses, so user-supplied trackback targets
+        // cannot reach internal infrastructure (also mitigates DNS rebinding
+        // because the validated IP is what we actually connect to).
+        $ipAddresses = gethostbynamel($host);
+
+        if ($ipAddresses === false || $ipAddresses === []) {
+            throw new TransportException('Failed to resolve host: ' . $host);
+        }
+
+        foreach ($ipAddresses as $ip) {
+            if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_PUB_RANGE)) {
+                throw new TransportException('Refusing to connect to private or reserved address for host: ' . $host);
+            }
+        }
+
+        // Connect to the validated IP (not the hostname) to prevent the DNS
+        // answer from changing between validation and connection.
+        $validatedIp = $ipAddresses[0];
         
         // Build path
         $path = $target['path'] ?? '/';
@@ -61,7 +86,7 @@ class HttpTransport implements TransportInterface
         }
 
         // Try to reuse connection if same host
-        $fp = $this->getConnection($host, $port);
+        $fp = $this->getConnection($host, $port, $validatedIp);
 
         if ($fp === false) {
             throw new TransportException('Failed to connect to: ' . $host);
@@ -119,9 +144,13 @@ class HttpTransport implements TransportInterface
 
     /**
      * Get or create socket connection.
+     *
+     * @param string      $host      Logical host (connection reuse key; Host header keeps this value)
+     * @param int         $port
+     * @param string|null $connectIp Pre-validated IP to actually connect to (SSRF guard)
      * @return resource|false
      */
-    private function getConnection(string $host, int $port)
+    private function getConnection(string $host, int $port, ?string $connectIp = null)
     {
         // Reuse connection if same host
         if ($this->lastConnection !== null && $this->lastHost === $host) {
@@ -135,7 +164,7 @@ class HttpTransport implements TransportInterface
         $errno = 0;
         $errstr = '';
         
-        $fp = @fsockopen($host, $port, $errno, $errstr, $this->timeout);
+        $fp = @fsockopen($connectIp ?? $host, $port, $errno, $errstr, $this->timeout);
 
         if ($fp !== false) {
             $this->lastConnection = $fp;
